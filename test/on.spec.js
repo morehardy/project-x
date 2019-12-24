@@ -1,5 +1,6 @@
-import projectX from 'project-x'
-import { wait } from '@testing-library/dom'
+import Alpine from 'alpinejs'
+import { wait, fireEvent } from '@testing-library/dom'
+const timeout = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 global.MutationObserver = class {
     observe() {}
@@ -14,7 +15,7 @@ test('data modified in event listener updates effected attribute bindings', asyn
         </div>
     `
 
-    projectX.start()
+    Alpine.start()
 
     expect(document.querySelector('span').getAttribute('foo')).toEqual('bar')
 
@@ -22,6 +23,25 @@ test('data modified in event listener updates effected attribute bindings', asyn
 
     await wait(() => { expect(document.querySelector('span').getAttribute('foo')).toEqual('baz') })
 })
+
+test('nested data modified in event listener updates effected attribute bindings', async () => {
+    document.body.innerHTML = `
+        <div x-data="{ nested: { foo: 'bar' } }">
+            <button x-on:click="nested.foo = 'baz'"></button>
+
+            <span x-bind:foo="nested.foo"></span>
+        </div>
+    `
+
+    Alpine.start()
+
+    expect(document.querySelector('span').getAttribute('foo')).toEqual('bar')
+
+    document.querySelector('button').click()
+
+    await wait(() => { expect(document.querySelector('span').getAttribute('foo')).toEqual('baz') })
+})
+
 
 test('.stop modifier', async () => {
     document.body.innerHTML = `
@@ -32,7 +52,7 @@ test('.stop modifier', async () => {
         </div>
     `
 
-    projectX.start()
+    Alpine.start()
 
     expect(document.querySelector('div').__x.data.foo).toEqual('bar')
 
@@ -50,7 +70,7 @@ test('.prevent modifier', async () => {
         </div>
     `
 
-    projectX.start()
+    Alpine.start()
 
     expect(document.querySelector('input').checked).toEqual(false)
 
@@ -68,13 +88,59 @@ test('.window modifier', async () => {
         </div>
     `
 
-    projectX.start()
+    Alpine.start()
 
     expect(document.querySelector('span').getAttribute('foo')).toEqual('bar')
 
     document.body.click()
 
     await wait(() => { expect(document.querySelector('span').getAttribute('foo')).toEqual('baz') })
+})
+
+test('.once modifier', async () => {
+    document.body.innerHTML = `
+        <div x-data="{ count: 0 }">
+            <button x-on:click.once="count = count+1"></button>
+
+            <span x-bind:foo="count"
+        </div>
+    `
+
+    Alpine.start()
+
+    expect(document.querySelector('span').getAttribute('foo')).toEqual('0')
+
+    document.querySelector('button').click()
+
+    await wait(() => { expect(document.querySelector('span').getAttribute('foo')).toEqual('1') })
+
+    document.querySelector('button').click()
+
+    await timeout(25)
+
+    expect(document.querySelector('span').getAttribute('foo')).toEqual('1')
+})
+
+test('keydown modifiers', async () => {
+    document.body.innerHTML = `
+        <div x-data="{ count: 0 }">
+            <input type="text" x-on:keydown="count++" x-on:keydown.enter="count++">
+
+            <span x-text="count"></span>
+        </div>
+    `
+
+    Alpine.start()
+
+    expect(document.querySelector('span').innerText).toEqual(0)
+
+    fireEvent.keyDown(document.querySelector('input'), { key: 'Enter' })
+
+    await wait(() => { expect(document.querySelector('span').innerText).toEqual(2) })
+
+    fireEvent.keyDown(document.querySelector('input'), { key: 'Escape' })
+
+    await wait(() => { expect(document.querySelector('span').innerText).toEqual(3) })
 })
 
 test('click away', async () => {
@@ -101,7 +167,7 @@ test('click away', async () => {
         </div>
     `
 
-    projectX.start()
+    Alpine.start()
 
     expect(document.querySelector('ul').classList.contains('hidden')).toEqual(false)
 

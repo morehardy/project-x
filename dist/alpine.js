@@ -856,6 +856,8 @@ try {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "default", function() { return Component; });
 /* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./utils */ "./src/utils.js");
+function _typeof(obj) { if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
+
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
@@ -874,6 +876,7 @@ function () {
     var rawData = Object(_utils__WEBPACK_IMPORTED_MODULE_0__["saferEval"])(this.el.getAttribute('x-data'), {});
     this.data = this.wrapDataInObservable(rawData);
     this.initialize();
+    this.listenForNewElementsToInitialize();
   }
 
   _createClass(Component, [{
@@ -881,18 +884,32 @@ function () {
     value: function wrapDataInObservable(data) {
       this.concernedData = [];
       var self = this;
-      return new Proxy(data, {
-        set: function set(obj, property, value) {
-          var setWasSuccessful = Reflect.set(obj, property, value);
 
-          if (self.concernedData.indexOf(property) === -1) {
-            self.concernedData.push(property);
+      var proxyHandler = function proxyHandler(keyPrefix) {
+        return {
+          set: function set(obj, property, value) {
+            var propertyName = keyPrefix ? "".concat(keyPrefix, ".").concat(property) : property;
+            var setWasSuccessful = Reflect.set(obj, property, value);
+
+            if (self.concernedData.indexOf(propertyName) === -1) {
+              self.concernedData.push(propertyName);
+            }
+
+            self.refresh();
+            return setWasSuccessful;
+          },
+          get: function get(target, key) {
+            if (_typeof(target[key]) === 'object' && target[key] !== null) {
+              var propertyName = keyPrefix ? "".concat(keyPrefix, ".").concat(key) : key;
+              return new Proxy(target[key], proxyHandler(propertyName));
+            }
+
+            return target[key];
           }
+        };
+      };
 
-          self.refresh();
-          return setWasSuccessful;
-        }
-      });
+      return new Proxy(data, proxyHandler());
     }
   }, {
     key: "initialize",
@@ -900,78 +917,159 @@ function () {
       var _this = this;
 
       Object(_utils__WEBPACK_IMPORTED_MODULE_0__["walkSkippingNestedComponents"])(this.el, function (el) {
-        Object(_utils__WEBPACK_IMPORTED_MODULE_0__["getXAttrs"])(el).forEach(function (_ref) {
-          var type = _ref.type,
-              value = _ref.value,
-              modifiers = _ref.modifiers,
-              expression = _ref.expression;
-
-          switch (type) {
-            case 'on':
-              var event = value;
-
-              _this.registerListener(el, event, modifiers, expression);
-
-              break;
-
-            case 'model':
-              // If the element we are binding to is a select, a radio, or checkbox
-              // we'll listen for the change event instead of the "input" event.
-              var event = el.tagName.toLowerCase() === 'select' || ['checkbox', 'radio'].includes(el.type) || modifiers.includes('lazy') ? 'change' : 'input';
-
-              var listenerExpression = _this.generateExpressionForXModelListener(el, modifiers, expression);
-
-              _this.registerListener(el, event, modifiers, listenerExpression);
-
-              var attrName = 'value';
-
-              var _this$evaluateReturnE = _this.evaluateReturnExpression(expression),
-                  output = _this$evaluateReturnE.output;
-
-              _this.updateAttributeValue(el, attrName, output);
-
-              break;
-
-            case 'bind':
-              var attrName = value;
-
-              var _this$evaluateReturnE2 = _this.evaluateReturnExpression(expression),
-                  output = _this$evaluateReturnE2.output;
-
-              _this.updateAttributeValue(el, attrName, output);
-
-              break;
-
-            case 'text':
-              var _this$evaluateReturnE3 = _this.evaluateReturnExpression(expression),
-                  output = _this$evaluateReturnE3.output;
-
-              _this.updateTextValue(el, output);
-
-              break;
-
-            case 'show':
-              var _this$evaluateReturnE4 = _this.evaluateReturnExpression(expression),
-                  output = _this$evaluateReturnE4.output;
-
-              _this.updateVisibility(el, output);
-
-              break;
-
-            case 'cloak':
-              el.removeAttribute('x-cloak');
-              break;
-
-            default:
-              break;
-          }
-        });
+        _this.initializeElement(el);
       });
+    }
+  }, {
+    key: "initializeElement",
+    value: function initializeElement(el) {
+      var _this2 = this;
+
+      Object(_utils__WEBPACK_IMPORTED_MODULE_0__["getXAttrs"])(el).forEach(function (_ref) {
+        var type = _ref.type,
+            value = _ref.value,
+            modifiers = _ref.modifiers,
+            expression = _ref.expression;
+
+        switch (type) {
+          case 'on':
+            var event = value;
+
+            _this2.registerListener(el, event, modifiers, expression);
+
+            break;
+
+          case 'model':
+            // If the element we are binding to is a select, a radio, or checkbox
+            // we'll listen for the change event instead of the "input" event.
+            var event = el.tagName.toLowerCase() === 'select' || ['checkbox', 'radio'].includes(el.type) || modifiers.includes('lazy') ? 'change' : 'input';
+
+            var listenerExpression = _this2.generateExpressionForXModelListener(el, modifiers, expression);
+
+            _this2.registerListener(el, event, modifiers, listenerExpression);
+
+            var attrName = 'value';
+
+            var _this2$evaluateReturn = _this2.evaluateReturnExpression(expression),
+                output = _this2$evaluateReturn.output;
+
+            _this2.updateAttributeValue(el, attrName, output);
+
+            break;
+
+          case 'bind':
+            var attrName = value;
+
+            var _this2$evaluateReturn2 = _this2.evaluateReturnExpression(expression),
+                output = _this2$evaluateReturn2.output;
+
+            _this2.updateAttributeValue(el, attrName, output);
+
+            break;
+
+          case 'text':
+            var _this2$evaluateReturn3 = _this2.evaluateReturnExpression(expression),
+                output = _this2$evaluateReturn3.output;
+
+            _this2.updateTextValue(el, output);
+
+            break;
+
+          case 'show':
+            var _this2$evaluateReturn4 = _this2.evaluateReturnExpression(expression),
+                output = _this2$evaluateReturn4.output;
+
+            _this2.updateVisibility(el, output);
+
+            break;
+
+          case 'if':
+            var _this2$evaluateReturn5 = _this2.evaluateReturnExpression(expression),
+                output = _this2$evaluateReturn5.output;
+
+            _this2.updatePresence(el, output);
+
+            break;
+
+          case 'cloak':
+            el.removeAttribute('x-cloak');
+            break;
+
+          default:
+            break;
+        }
+      });
+    }
+  }, {
+    key: "listenForNewElementsToInitialize",
+    value: function listenForNewElementsToInitialize() {
+      var _this3 = this;
+
+      var targetNode = this.el;
+      var observerOptions = {
+        childList: true,
+        attributes: true,
+        subtree: true
+      };
+      var observer = new MutationObserver(function (mutations) {
+        window.latestMutations = mutations;
+
+        for (var i = 0; i < mutations.length; i++) {
+          if (mutations[i].type === 'attributes' && mutations[i].attributeName === 'x-data') {
+            (function () {
+              var rawData = Object(_utils__WEBPACK_IMPORTED_MODULE_0__["saferEval"])(mutations[i].target.getAttribute('x-data'), {});
+              Object.keys(rawData).forEach(function (key) {
+                _this3.data[key] = rawData[key];
+              });
+            })();
+          }
+
+          if (mutations[i].addedNodes.length > 0) {
+            mutations[i].addedNodes.forEach(function (node) {
+              if (node.nodeType !== 1) return;
+              if (node.matches('[x-data]')) return;
+
+              if (Object(_utils__WEBPACK_IMPORTED_MODULE_0__["getXAttrs"])(node).length > 0) {
+                _this3.initializeElement(node);
+              }
+            });
+          }
+        }
+      });
+      observer.observe(targetNode, observerOptions);
     }
   }, {
     key: "refresh",
     value: function refresh() {
       var self = this;
+      var actionByDirectiveType = {
+        'model': function model(_ref2) {
+          var el = _ref2.el,
+              output = _ref2.output;
+          self.updateAttributeValue(el, 'value', output);
+        },
+        'bind': function bind(_ref3) {
+          var el = _ref3.el,
+              attrName = _ref3.attrName,
+              output = _ref3.output;
+          self.updateAttributeValue(el, attrName, output);
+        },
+        'text': function text(_ref4) {
+          var el = _ref4.el,
+              output = _ref4.output;
+          self.updateTextValue(el, output);
+        },
+        'show': function show(_ref5) {
+          var el = _ref5.el,
+              output = _ref5.output;
+          self.updateVisibility(el, output);
+        },
+        'if': function _if(_ref6) {
+          var el = _ref6.el,
+              output = _ref6.output;
+          self.updatePresence(el, output);
+        }
+      };
 
       var walkThenClearDependancyTracker = function walkThenClearDependancyTracker(rootEl, callback) {
         Object(_utils__WEBPACK_IMPORTED_MODULE_0__["walkSkippingNestedComponents"])(rootEl, callback);
@@ -979,69 +1077,24 @@ function () {
       };
 
       Object(_utils__WEBPACK_IMPORTED_MODULE_0__["debounce"])(walkThenClearDependancyTracker, 5)(this.el, function (el) {
-        Object(_utils__WEBPACK_IMPORTED_MODULE_0__["getXAttrs"])(el).forEach(function (_ref2) {
-          var type = _ref2.type,
-              value = _ref2.value,
-              modifiers = _ref2.modifiers,
-              expression = _ref2.expression;
+        Object(_utils__WEBPACK_IMPORTED_MODULE_0__["getXAttrs"])(el).forEach(function (_ref7) {
+          var type = _ref7.type,
+              value = _ref7.value,
+              expression = _ref7.expression;
+          if (!actionByDirectiveType[type]) return;
 
-          switch (type) {
-            case 'model':
-              var _self$evaluateReturnE = self.evaluateReturnExpression(expression),
-                  output = _self$evaluateReturnE.output,
-                  deps = _self$evaluateReturnE.deps;
+          var _self$evaluateReturnE = self.evaluateReturnExpression(expression),
+              output = _self$evaluateReturnE.output,
+              deps = _self$evaluateReturnE.deps;
 
-              if (self.concernedData.filter(function (i) {
-                return deps.includes(i);
-              }).length > 0) {
-                self.updateAttributeValue(el, 'value', output);
-              }
-
-              break;
-
-            case 'bind':
-              var attrName = value;
-
-              var _self$evaluateReturnE2 = self.evaluateReturnExpression(expression),
-                  output = _self$evaluateReturnE2.output,
-                  deps = _self$evaluateReturnE2.deps;
-
-              if (self.concernedData.filter(function (i) {
-                return deps.includes(i);
-              }).length > 0) {
-                self.updateAttributeValue(el, attrName, output);
-              }
-
-              break;
-
-            case 'text':
-              var _self$evaluateReturnE3 = self.evaluateReturnExpression(expression),
-                  output = _self$evaluateReturnE3.output,
-                  deps = _self$evaluateReturnE3.deps;
-
-              if (self.concernedData.filter(function (i) {
-                return deps.includes(i);
-              }).length > 0) {
-                self.updateTextValue(el, output);
-              }
-
-              break;
-
-            case 'show':
-              var _self$evaluateReturnE4 = self.evaluateReturnExpression(expression),
-                  output = _self$evaluateReturnE4.output,
-                  deps = _self$evaluateReturnE4.deps;
-
-              if (self.concernedData.filter(function (i) {
-                return deps.includes(i);
-              }).length > 0) {
-                self.updateVisibility(el, output);
-              }
-
-              break;
-
-            default:
-              break;
+          if (self.concernedData.filter(function (i) {
+            return deps.includes(i);
+          }).length > 0) {
+            actionByDirectiveType[type]({
+              el: el,
+              attrName: value,
+              output: output
+            });
           }
         });
       });
@@ -1054,7 +1107,7 @@ function () {
       if (el.type === 'checkbox') {
         // If the data we are binding to is an array, toggle it's value inside the array.
         if (Array.isArray(this.data[dataKey])) {
-          rightSideOfExpression = "$event.target.checked ? ".concat(dataKey, ".concat([$event.target.value]) : [...").concat(dataKey, ".splice(0, ").concat(dataKey, ".indexOf($event.target.value)), ...").concat(dataKey, ".splice(").concat(dataKey, ".indexOf($event.target.value)+1)]");
+          rightSideOfExpression = "$event.target.checked ? ".concat(dataKey, ".concat([$event.target.value]) : ").concat(dataKey, ".filter(i => i !== $event.target.value)");
         } else {
           rightSideOfExpression = "$event.target.checked";
         }
@@ -1076,27 +1129,44 @@ function () {
   }, {
     key: "registerListener",
     value: function registerListener(el, event, modifiers, expression) {
-      var _this2 = this;
+      var _this4 = this;
 
       if (modifiers.includes('away')) {
-        // Listen for this event at the root level.
-        document.addEventListener(event, function (e) {
+        var handler = function handler(e) {
           // Don't do anything if the click came form the element or within it.
           if (el.contains(e.target)) return; // Don't do anything if this element isn't currently visible.
 
           if (el.offsetWidth < 1 && el.offsetHeight < 1) return; // Now that we are sure the element is visible, AND the click
           // is from outside it, let's run the expression.
 
-          _this2.runListenerHandler(expression, e);
-        });
+          _this4.runListenerHandler(expression, e);
+
+          if (modifiers.includes('once')) {
+            document.removeEventListener(event, handler);
+          }
+        }; // Listen for this event at the root level.
+
+
+        document.addEventListener(event, handler);
       } else {
-        var node = modifiers.includes('window') ? window : el;
-        node.addEventListener(event, function (e) {
+        var listenerTarget = modifiers.includes('window') ? window : el;
+
+        var _handler = function _handler(e) {
+          var modifiersWithoutWindow = modifiers.filter(function (i) {
+            return i !== 'window';
+          });
+          if (event === 'keydown' && modifiersWithoutWindow.length > 0 && !modifiersWithoutWindow.includes(Object(_utils__WEBPACK_IMPORTED_MODULE_0__["kebabCase"])(e.key))) return;
           if (modifiers.includes('prevent')) e.preventDefault();
           if (modifiers.includes('stop')) e.stopPropagation();
 
-          _this2.runListenerHandler(expression, e);
-        });
+          _this4.runListenerHandler(expression, e);
+
+          if (modifiers.includes('once')) {
+            listenerTarget.removeEventListener(event, _handler);
+          }
+        };
+
+        listenerTarget.addEventListener(event, _handler);
       }
     }
   }, {
@@ -1111,12 +1181,27 @@ function () {
     key: "evaluateReturnExpression",
     value: function evaluateReturnExpression(expression) {
       var affectedDataKeys = [];
-      var proxiedData = new Proxy(this.data, {
-        get: function get(object, prop) {
-          affectedDataKeys.push(prop);
-          return object[prop];
-        }
-      });
+
+      var proxyHandler = function proxyHandler(prefix) {
+        return {
+          get: function get(object, prop) {
+            // Sometimes non-proxyable values are accessed. These are of type "symbol".
+            // We can ignore them.
+            if (_typeof(prop) === 'symbol') return;
+            var propertyName = prefix ? "".concat(prefix, ".").concat(prop) : prop; // If we are accessing an object prop, we'll make this proxy recursive to build
+            // a nested dependancy key.
+
+            if (_typeof(object[prop]) === 'object' && object[prop] !== null && !Array.isArray(object[prop])) {
+              return new Proxy(object[prop], proxyHandler(propertyName));
+            }
+
+            affectedDataKeys.push(propertyName);
+            return object[prop];
+          }
+        };
+      };
+
+      var proxiedData = new Proxy(this.data, proxyHandler());
       var result = Object(_utils__WEBPACK_IMPORTED_MODULE_0__["saferEval"])(expression, proxiedData);
       return {
         output: result,
@@ -1144,6 +1229,20 @@ function () {
         } else {
           el.style.removeProperty('display');
         }
+      }
+    }
+  }, {
+    key: "updatePresence",
+    value: function updatePresence(el, expressionResult) {
+      if (el.nodeName.toLowerCase() !== 'template') console.warn("Alpine: [x-if] directive should only be added to <template> tags.");
+      var elementHasAlreadyBeenAdded = el.nextElementSibling && el.nextElementSibling.__x_inserted_me === true;
+
+      if (expressionResult && !elementHasAlreadyBeenAdded) {
+        var clone = document.importNode(el.content, true);
+        el.parentElement.insertBefore(clone, el.nextElementSibling);
+        el.nextElementSibling.__x_inserted_me = true;
+      } else if (!expressionResult && elementHasAlreadyBeenAdded) {
+        el.nextElementSibling.remove();
       }
     }
   }, {
@@ -1177,15 +1276,19 @@ function () {
           el.setAttribute('class', value.join(' '));
         } else {
           // Use the class object syntax that vue uses to toggle them.
-          Object.keys(value).forEach(function (className) {
-            if (value[className]) {
-              el.classList.add(className);
+          Object.keys(value).forEach(function (classNames) {
+            if (value[classNames]) {
+              classNames.split(' ').forEach(function (className) {
+                return el.classList.add(className);
+              });
             } else {
-              el.classList.remove(className);
+              classNames.split(' ').forEach(function (className) {
+                return el.classList.remove(className);
+              });
             }
           });
         }
-      } else if (['disabled', 'readonly', 'required', 'checked'].includes(attrName)) {
+      } else if (['disabled', 'readonly', 'required', 'checked', 'hidden'].includes(attrName)) {
         // Boolean attributes have to be explicitly added and removed, not just set.
         if (!!value) {
           el.setAttribute(attrName, '');
@@ -1209,7 +1312,7 @@ function () {
   }, {
     key: "getRefsProxy",
     value: function getRefsProxy() {
-      var self = this; // One of the goals of this project is to not hold elements in memory, but rather re-evaluate
+      var self = this; // One of the goals of this is to not hold elements in memory, but rather re-evaluate
       // the DOM when the system needs something from it. This way, the framework is flexible and
       // friendly to outside DOM changes from libraries like Vue/Livewire.
       // For this reason, I'm using an "on-demand" proxy to fake a "$refs" object.
@@ -1252,10 +1355,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./utils */ "./src/utils.js");
 
 
-/* @flow */
 
-
-var projectX = {
+var Alpine = {
   start: function start() {
     var _this = this;
 
@@ -1273,17 +1374,17 @@ var projectX = {
 
           case 3:
             this.discoverComponents(function (el) {
-              _this.initializeElement(el);
+              _this.initializeComponent(el);
             }); // It's easier and more performant to just support Turbolinks than listen
             // to MutationOberserver mutations at the document level.
 
             document.addEventListener("turbolinks:load", function () {
               _this.discoverUninitializedComponents(function (el) {
-                _this.initializeElement(el);
+                _this.initializeComponent(el);
               });
             });
             this.listenForNewUninitializedComponentsAtRunTime(function (el) {
-              _this.initializeElement(el);
+              _this.initializeComponent(el);
             });
 
           case 6:
@@ -1319,27 +1420,24 @@ var projectX = {
         if (mutations[i].addedNodes.length > 0) {
           mutations[i].addedNodes.forEach(function (node) {
             if (node.nodeType !== 1) return;
-
-            if (node.matches('[x-data]')) {
-              callback(node);
-            }
+            if (node.matches('[x-data]')) callback(node);
           });
         }
       }
     });
     observer.observe(targetNode, observerOptions);
   },
-  initializeElement: function initializeElement(el) {
+  initializeComponent: function initializeComponent(el) {
     el.__x = new _component__WEBPACK_IMPORTED_MODULE_1__["default"](el);
   }
 };
 
-if (!window.projectX && !Object(_utils__WEBPACK_IMPORTED_MODULE_2__["isTesting"])()) {
-  window.projectX = projectX;
-  window.projectX.start();
+if (window !== undefined && !window.Alpine && !Object(_utils__WEBPACK_IMPORTED_MODULE_2__["isTesting"])()) {
+  window.Alpine = Alpine;
+  window.Alpine.start();
 }
 
-/* harmony default export */ __webpack_exports__["default"] = (projectX);
+/* harmony default export */ __webpack_exports__["default"] = (Alpine);
 
 /***/ }),
 
@@ -1347,13 +1445,14 @@ if (!window.projectX && !Object(_utils__WEBPACK_IMPORTED_MODULE_2__["isTesting"]
 /*!**********************!*\
   !*** ./src/utils.js ***!
   \**********************/
-/*! exports provided: domReady, isTesting, walkSkippingNestedComponents, debounce, onlyUnique, saferEval, saferEvalNoReturn, isXAttr, getXAttrs */
+/*! exports provided: domReady, isTesting, kebabCase, walkSkippingNestedComponents, debounce, onlyUnique, saferEval, saferEvalNoReturn, isXAttr, getXAttrs */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "domReady", function() { return domReady; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "isTesting", function() { return isTesting; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "kebabCase", function() { return kebabCase; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "walkSkippingNestedComponents", function() { return walkSkippingNestedComponents; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "debounce", function() { return debounce; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "onlyUnique", function() { return onlyUnique; });
@@ -1383,13 +1482,17 @@ function domReady() {
 function isTesting() {
   return navigator.userAgent, navigator.userAgent.includes("Node.js") || navigator.userAgent.includes("jsdom");
 }
+function kebabCase(subject) {
+  return subject.replace(/([a-z])([A-Z])/g, '$1-$2').replace(/[_\s]/, '-').toLowerCase();
+}
 function walkSkippingNestedComponents(el, callback) {
+  var isRoot = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
+  if (el.hasAttribute('x-data') && !isRoot) return;
   callback(el);
   var node = el.firstElementChild;
 
   while (node) {
-    if (node.hasAttribute('x-data')) return;
-    walkSkippingNestedComponents(node, callback);
+    walkSkippingNestedComponents(node, callback, false);
     node = node.nextElementSibling;
   }
 }
@@ -1423,12 +1526,12 @@ function saferEvalNoReturn(expression, dataContext) {
   return new Function(['$data'].concat(_toConsumableArray(Object.keys(additionalHelperVariables))), "with($data) { ".concat(expression, " }")).apply(void 0, [dataContext].concat(_toConsumableArray(Object.values(additionalHelperVariables))));
 }
 function isXAttr(attr) {
-  var xAttrRE = /x-(on|bind|data|text|model|show|cloak|ref)/;
+  var xAttrRE = /x-(on|bind|data|text|model|if|show|cloak|ref)/;
   return xAttrRE.test(attr.name);
 }
 function getXAttrs(el, type) {
   return Array.from(el.attributes).filter(isXAttr).map(function (attr) {
-    var typeMatch = attr.name.match(/x-(on|bind|data|text|model|show|cloak|ref)/);
+    var typeMatch = attr.name.match(/x-(on|bind|data|text|model|if|show|cloak|ref)/);
     var valueMatch = attr.name.match(/:([a-zA-Z\-]+)/);
     var modifiers = attr.name.match(/\.[^.\]]+(?=[^\]]*$)/g) || [];
     return {
@@ -1455,7 +1558,7 @@ function getXAttrs(el, type) {
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
-module.exports = __webpack_require__(/*! /Users/calebporzio/Documents/Code/sites/project-x/src/index.js */"./src/index.js");
+module.exports = __webpack_require__(/*! /Users/calebporzio/Documents/Code/sites/alpine/src/index.js */"./src/index.js");
 
 
 /***/ })

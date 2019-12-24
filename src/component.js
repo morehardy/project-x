@@ -1,4 +1,4 @@
-import { walkSkippingNestedComponents, saferEval, saferEvalNoReturn, getXAttrs, debounce } from './utils'
+import { walkSkippingNestedComponents, kebabCase, saferEval, saferEvalNoReturn, getXAttrs, debounce } from './utils'
 
 export default class Component {
     constructor(el) {
@@ -9,82 +9,153 @@ export default class Component {
         this.data = this.wrapDataInObservable(rawData)
 
         this.initialize()
+
+        this.listenForNewElementsToInitialize()
     }
 
     wrapDataInObservable(data) {
         this.concernedData = []
 
         var self = this
-        return new Proxy(data, {
+
+        const proxyHandler = keyPrefix => ({
             set(obj, property, value) {
+                const propertyName = keyPrefix ? `${keyPrefix}.${property}` : property
+
                 const setWasSuccessful = Reflect.set(obj, property, value)
 
-                if (self.concernedData.indexOf(property) === -1) {
-                    self.concernedData.push(property)
+                if (self.concernedData.indexOf(propertyName) === -1) {
+                    self.concernedData.push(propertyName)
                 }
 
                 self.refresh()
 
                 return setWasSuccessful
+            },
+            get(target, key) {
+                if (typeof target[key] === 'object' && target[key] !== null) {
+                    const propertyName = keyPrefix ? `${keyPrefix}.${key}` : key
+
+                    return new Proxy(target[key], proxyHandler(propertyName))
+                }
+
+                return target[key]
             }
         })
+
+        return new Proxy(data, proxyHandler())
     }
 
     initialize() {
         walkSkippingNestedComponents(this.el, el => {
-            getXAttrs(el).forEach(({ type, value, modifiers, expression }) => {
-                switch (type) {
-                    case 'on':
-                        var event = value
-                        this.registerListener(el, event, modifiers, expression)
-                        break;
-
-                    case 'model':
-                        // If the element we are binding to is a select, a radio, or checkbox
-                        // we'll listen for the change event instead of the "input" event.
-                        var event = (el.tagName.toLowerCase() === 'select')
-                            || ['checkbox', 'radio'].includes(el.type)
-                            || modifiers.includes('lazy')
-                            ? 'change' : 'input'
-
-                        const listenerExpression = this.generateExpressionForXModelListener(el, modifiers, expression)
-
-                        this.registerListener(el, event, modifiers, listenerExpression)
-
-                        var attrName = 'value'
-                        var { output } = this.evaluateReturnExpression(expression)
-                        this.updateAttributeValue(el, attrName, output)
-                        break;
-
-                    case 'bind':
-                        var attrName = value
-                        var { output } = this.evaluateReturnExpression(expression)
-                        this.updateAttributeValue(el, attrName, output)
-                        break;
-
-                    case 'text':
-                        var { output } = this.evaluateReturnExpression(expression)
-                        this.updateTextValue(el, output)
-                        break;
-
-                    case 'show':
-                        var { output } = this.evaluateReturnExpression(expression)
-                        this.updateVisibility(el, output)
-                        break;
-
-                    case 'cloak':
-                        el.removeAttribute('x-cloak')
-                        break;
-
-                    default:
-                        break;
-                }
-            })
+            this.initializeElement(el)
         })
+    }
+
+    initializeElement(el) {
+        getXAttrs(el).forEach(({ type, value, modifiers, expression }) => {
+            switch (type) {
+                case 'on':
+                    var event = value
+                    this.registerListener(el, event, modifiers, expression)
+                    break;
+
+                case 'model':
+                    // If the element we are binding to is a select, a radio, or checkbox
+                    // we'll listen for the change event instead of the "input" event.
+                    var event = (el.tagName.toLowerCase() === 'select')
+                        || ['checkbox', 'radio'].includes(el.type)
+                        || modifiers.includes('lazy')
+                        ? 'change' : 'input'
+
+                    const listenerExpression = this.generateExpressionForXModelListener(el, modifiers, expression)
+
+                    this.registerListener(el, event, modifiers, listenerExpression)
+
+                    var attrName = 'value'
+                    var { output } = this.evaluateReturnExpression(expression)
+                    this.updateAttributeValue(el, attrName, output)
+                    break;
+
+                case 'bind':
+                    var attrName = value
+                    var { output } = this.evaluateReturnExpression(expression)
+                    this.updateAttributeValue(el, attrName, output)
+                    break;
+
+                case 'text':
+                    var { output } = this.evaluateReturnExpression(expression)
+                    this.updateTextValue(el, output)
+                    break;
+
+                case 'show':
+                    var { output } = this.evaluateReturnExpression(expression)
+                    this.updateVisibility(el, output)
+                    break;
+
+                case 'if':
+                    var { output } = this.evaluateReturnExpression(expression)
+                    this.updatePresence(el, output)
+                    break;
+
+                case 'cloak':
+                    el.removeAttribute('x-cloak')
+                    break;
+
+                default:
+                    break;
+            }
+        })
+    }
+
+    listenForNewElementsToInitialize() {
+        const targetNode = this.el
+
+        const observerOptions = {
+            childList: true,
+            attributes: true,
+            subtree: true,
+        }
+
+        const observer = new MutationObserver((mutations) => {
+            window.latestMutations = mutations
+
+            for (let i=0; i < mutations.length; i++){
+                if (mutations[i].type === 'attributes' && mutations[i].attributeName === 'x-data') {
+                    const rawData = saferEval(mutations[i].target.getAttribute('x-data'), {})
+
+                    Object.keys(rawData).forEach(key => {
+                        this.data[key] = rawData[key]
+                    })
+                }
+
+                if (mutations[i].addedNodes.length > 0) {
+                    mutations[i].addedNodes.forEach(node => {
+                        if (node.nodeType !== 1) return
+
+                        if (node.matches('[x-data]')) return
+
+                        if (getXAttrs(node).length > 0) {
+                            this.initializeElement(node)
+                        }
+                    })
+                }
+              }
+        })
+
+        observer.observe(targetNode, observerOptions);
     }
 
     refresh() {
         var self = this
+
+        const actionByDirectiveType = {
+            'model': ({el, output}) => { self.updateAttributeValue(el, 'value', output) },
+            'bind': ({el, attrName, output}) => { self.updateAttributeValue(el, attrName, output) },
+            'text': ({el, output}) => { self.updateTextValue(el, output) },
+            'show': ({el, output}) => { self.updateVisibility(el, output) },
+            'if': ({el, output}) => { self.updatePresence(el, output) },
+        }
 
         const walkThenClearDependancyTracker = (rootEl, callback) => {
             walkSkippingNestedComponents(rootEl, callback)
@@ -93,42 +164,13 @@ export default class Component {
         }
 
         debounce(walkThenClearDependancyTracker, 5)(this.el, function (el) {
-            getXAttrs(el).forEach(({ type, value, modifiers, expression }) => {
-                switch (type) {
-                    case 'model':
-                        var { output, deps } = self.evaluateReturnExpression(expression)
+            getXAttrs(el).forEach(({ type, value, expression }) => {
+                if (! actionByDirectiveType[type]) return
 
-                        if (self.concernedData.filter(i => deps.includes(i)).length > 0) {
-                            self.updateAttributeValue(el, 'value', output)
-                        }
-                        break;
-                    case 'bind':
-                        const attrName = value
-                        var { output, deps } = self.evaluateReturnExpression(expression)
+                var { output, deps } = self.evaluateReturnExpression(expression)
 
-                        if (self.concernedData.filter(i => deps.includes(i)).length > 0) {
-                            self.updateAttributeValue(el, attrName, output)
-                        }
-                        break;
-
-                    case 'text':
-                        var { output, deps } = self.evaluateReturnExpression(expression)
-
-                        if (self.concernedData.filter(i => deps.includes(i)).length > 0) {
-                            self.updateTextValue(el, output)
-                        }
-                        break;
-
-                    case 'show':
-                        var { output, deps } = self.evaluateReturnExpression(expression)
-
-                        if (self.concernedData.filter(i => deps.includes(i)).length > 0) {
-                            self.updateVisibility(el, output)
-                        }
-                        break;
-
-                    default:
-                        break;
+                if (self.concernedData.filter(i => deps.includes(i)).length > 0) {
+                    (actionByDirectiveType[type])({ el, attrName: value, output })
                 }
             })
         })
@@ -139,7 +181,7 @@ export default class Component {
         if (el.type === 'checkbox') {
             // If the data we are binding to is an array, toggle it's value inside the array.
             if (Array.isArray(this.data[dataKey])) {
-                rightSideOfExpression = `$event.target.checked ? ${dataKey}.concat([$event.target.value]) : [...${dataKey}.splice(0, ${dataKey}.indexOf($event.target.value)), ...${dataKey}.splice(${dataKey}.indexOf($event.target.value)+1)]`
+                rightSideOfExpression = `$event.target.checked ? ${dataKey}.concat([$event.target.value]) : ${dataKey}.filter(i => i !== $event.target.value)`
             } else {
                 rightSideOfExpression = `$event.target.checked`
             }
@@ -165,8 +207,7 @@ export default class Component {
 
     registerListener(el, event, modifiers, expression) {
         if (modifiers.includes('away')) {
-            // Listen for this event at the root level.
-            document.addEventListener(event, e => {
+            const handler = e => {
                 // Don't do anything if the click came form the element or within it.
                 if (el.contains(e.target)) return
 
@@ -176,36 +217,67 @@ export default class Component {
                 // Now that we are sure the element is visible, AND the click
                 // is from outside it, let's run the expression.
                 this.runListenerHandler(expression, e)
-            })
-        } else {
-            const node = modifiers.includes('window') ? window : el
 
-            node.addEventListener(event, e => {
+                if (modifiers.includes('once')) {
+                    document.removeEventListener(event, handler)
+                }
+            }
+
+            // Listen for this event at the root level.
+            document.addEventListener(event, handler)
+        } else {
+            const listenerTarget = modifiers.includes('window') ? window : el
+
+            const handler = e => {
+                const modifiersWithoutWindow = modifiers.filter(i => i !== 'window')
+
+                if (event === 'keydown' && modifiersWithoutWindow.length > 0 && ! modifiersWithoutWindow.includes(kebabCase(e.key))) return
+
                 if (modifiers.includes('prevent')) e.preventDefault()
                 if (modifiers.includes('stop')) e.stopPropagation()
 
                 this.runListenerHandler(expression, e)
-            })
+
+                if (modifiers.includes('once')) {
+                    listenerTarget.removeEventListener(event, handler)
+                }
+            }
+
+            listenerTarget.addEventListener(event, handler)
         }
     }
 
     runListenerHandler(expression, e) {
         this.evaluateCommandExpression(expression, {
             '$event': e,
-            '$refs': this.getRefsProxy()
+            '$refs': this.getRefsProxy(),
         })
     }
 
     evaluateReturnExpression(expression) {
         var affectedDataKeys = []
 
-        const proxiedData = new Proxy(this.data, {
+        const proxyHandler = prefix => ({
             get(object, prop) {
-                affectedDataKeys.push(prop)
+                // Sometimes non-proxyable values are accessed. These are of type "symbol".
+                // We can ignore them.
+                if (typeof prop === 'symbol') return
+
+                const propertyName = prefix ? `${prefix}.${prop}` : prop
+
+                // If we are accessing an object prop, we'll make this proxy recursive to build
+                // a nested dependancy key.
+                if (typeof object[prop] === 'object' && object[prop] !== null && ! Array.isArray(object[prop])) {
+                    return new Proxy(object[prop], proxyHandler(propertyName))
+                }
+
+                affectedDataKeys.push(propertyName)
 
                 return object[prop]
             }
         })
+
+        const proxiedData = new Proxy(this.data, proxyHandler())
 
         const result = saferEval(expression, proxiedData)
 
@@ -232,6 +304,22 @@ export default class Component {
             } else {
                 el.style.removeProperty('display')
             }
+        }
+    }
+
+    updatePresence(el, expressionResult) {
+        if (el.nodeName.toLowerCase() !== 'template') console.warn(`Alpine: [x-if] directive should only be added to <template> tags.`)
+
+        const elementHasAlreadyBeenAdded = el.nextElementSibling && el.nextElementSibling.__x_inserted_me === true
+
+        if (expressionResult && ! elementHasAlreadyBeenAdded) {
+            const clone = document.importNode(el.content, true);
+
+            el.parentElement.insertBefore(clone, el.nextElementSibling)
+
+            el.nextElementSibling.__x_inserted_me = true
+        } else if (! expressionResult && elementHasAlreadyBeenAdded) {
+            el.nextElementSibling.remove()
         }
     }
 
@@ -265,15 +353,15 @@ export default class Component {
                 el.setAttribute('class', value.join(' '))
             } else {
                 // Use the class object syntax that vue uses to toggle them.
-                Object.keys(value).forEach(className => {
-                    if (value[className]) {
-                        el.classList.add(className)
+                Object.keys(value).forEach(classNames => {
+                    if (value[classNames]) {
+                        classNames.split(' ').forEach(className => el.classList.add(className))
                     } else {
-                        el.classList.remove(className)
+                        classNames.split(' ').forEach(className => el.classList.remove(className))
                     }
                 })
             }
-        } else if (['disabled', 'readonly', 'required', 'checked'].includes(attrName)) {
+        } else if (['disabled', 'readonly', 'required', 'checked', 'hidden'].includes(attrName)) {
             // Boolean attributes have to be explicitly added and removed, not just set.
             if (!! value) {
                 el.setAttribute(attrName, '')
@@ -296,7 +384,7 @@ export default class Component {
     getRefsProxy() {
         var self = this
 
-        // One of the goals of this project is to not hold elements in memory, but rather re-evaluate
+        // One of the goals of this is to not hold elements in memory, but rather re-evaluate
         // the DOM when the system needs something from it. This way, the framework is flexible and
         // friendly to outside DOM changes from libraries like Vue/Livewire.
         // For this reason, I'm using an "on-demand" proxy to fake a "$refs" object.

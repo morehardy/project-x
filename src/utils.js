@@ -16,15 +16,20 @@ export function isTesting() {
         || navigator.userAgent.includes("jsdom")
 }
 
-export function walkSkippingNestedComponents(el, callback) {
+export function kebabCase(subject) {
+    return subject.replace(/([a-z])([A-Z])/g, '$1-$2').replace(/[_\s]/, '-').toLowerCase()
+}
+
+export function walkSkippingNestedComponents(el, callback, isRoot = true) {
+    if (el.hasAttribute('x-data') && ! isRoot) return
+
     callback(el)
 
     let node = el.firstElementChild
 
     while (node) {
-        if (node.hasAttribute('x-data')) return
+        walkSkippingNestedComponents(node, callback, false)
 
-        walkSkippingNestedComponents(node, callback)
         node = node.nextElementSibling
     }
 }
@@ -61,7 +66,7 @@ export function saferEvalNoReturn(expression, dataContext, additionalHelperVaria
 }
 
 export function isXAttr(attr) {
-    const xAttrRE = /x-(on|bind|data|text|model|show|cloak|ref)/
+    const xAttrRE = /x-(on|bind|data|text|model|if|show|cloak|ref)/
 
     return xAttrRE.test(attr.name)
 }
@@ -70,7 +75,7 @@ export function getXAttrs(el, type) {
     return Array.from(el.attributes)
         .filter(isXAttr)
         .map(attr => {
-            const typeMatch = attr.name.match(/x-(on|bind|data|text|model|show|cloak|ref)/)
+            const typeMatch = attr.name.match(/x-(on|bind|data|text|model|if|show|cloak|ref)/)
             const valueMatch = attr.name.match(/:([a-zA-Z\-]+)/)
             const modifiers = attr.name.match(/\.[^.\]]+(?=[^\]]*$)/g) || []
 
